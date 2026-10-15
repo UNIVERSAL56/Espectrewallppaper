@@ -1,4 +1,4 @@
-name: Generar Proyecto y Compilar APK
+name: Generar Proyecto Poweramp y Compilar APK
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
       - name: Descargar repositorio
         uses: actions/checkout@v4
 
-      - name: Generar estructura y archivos del proyecto Android
+      - name: Generar estructura y codigo fuente Poweramp Style
         run: |
           mkdir -p app/src/main/java/com/ejemplo/espectrowallpaper
           mkdir -p app/src/main/res/xml
@@ -69,8 +69,8 @@ jobs:
                   applicationId = "com.ejemplo.espectrowallpaper"
                   minSdk = 26
                   targetSdk = 34
-                  versionCode = 1
-                  versionName = "1.0"
+                  versionCode = 2
+                  versionName = "2.0"
               }
 
               compileOptions {
@@ -91,8 +91,8 @@ jobs:
 
           cat << 'EOF' > app/src/main/res/values/strings.xml
           <resources>
-              <string name="app_name">Espectro de Sonido</string>
-              <string name="wallpaper_desc">Fondo animado con espectro de frecuencias de audio en tiempo real</string>
+              <string name="app_name">PowerSpectrum Wallpaper</string>
+              <string name="wallpaper_desc">Visualizadores de audio estilo Poweramp a 60 FPS</string>
           </resources>
           EOF
 
@@ -103,11 +103,14 @@ jobs:
               android:viewportWidth="108"
               android:viewportHeight="108">
               <path
-                  android:fillColor="#0B0C10"
+                  android:fillColor="#07080D"
                   android:pathData="M0,0h108v108h-108z"/>
               <path
+                  android:fillColor="#FF007F"
+                  android:pathData="M18,64h6v20h-6zM28,48h6v36h-6zM38,30h6v54h-6z"/>
+              <path
                   android:fillColor="#00F5D4"
-                  android:pathData="M24,60h8v24h-8zM38,40h8v44h-8zM52,24h8v60h-8zM66,46h8v38h-8zM80,56h8v28h-8z"/>
+                  android:pathData="M48,18h6v66h-6zM58,28h6v56h-6zM68,42h6v42h-6zM78,54h6v30h-6zM88,66h6v18h-6z"/>
           </vector>
           EOF
 
@@ -115,7 +118,8 @@ jobs:
           <?xml version="1.0" encoding="utf-8"?>
           <wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
               android:description="@string/wallpaper_desc"
-              android:thumbnail="@drawable/ic_launcher" />
+              android:thumbnail="@drawable/ic_launcher"
+              android:settingsActivity="com.ejemplo.espectrowallpaper.MainActivity" />
           EOF
 
           cat << 'EOF' > app/src/main/AndroidManifest.xml
@@ -169,12 +173,18 @@ jobs:
           import android.Manifest
           import android.app.WallpaperManager
           import android.content.ComponentName
+          import android.content.Context
           import android.content.Intent
           import android.content.pm.PackageManager
+          import android.graphics.Color
+          import android.graphics.Typeface
+          import android.graphics.drawable.GradientDrawable
           import android.os.Bundle
           import android.view.Gravity
           import android.widget.Button
           import android.widget.LinearLayout
+          import android.widget.ScrollView
+          import android.widget.TextView
           import android.widget.Toast
           import androidx.activity.result.contract.ActivityResultContracts
           import androidx.appcompat.app.AppCompatActivity
@@ -190,7 +200,7 @@ jobs:
                   } else {
                       Toast.makeText(
                           this,
-                          "Se necesita el permiso de audio para mostrar el espectro.",
+                          "Se necesita el permiso de audio para capturar la música.",
                           Toast.LENGTH_LONG
                       ).show()
                   }
@@ -199,20 +209,155 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
 
-                  val layout = LinearLayout(this).apply {
-                      orientation = LinearLayout.VERTICAL
-                      gravity = Gravity.CENTER
-                      setBackgroundColor(0xFF0B0C10.toInt())
+                  val prefs = getSharedPreferences("spectrum_prefs", Context.MODE_PRIVATE)
+
+                  val scrollView = ScrollView(this).apply {
+                      setBackgroundColor(Color.parseColor("#08090F"))
                   }
 
-                  val button = Button(this).apply {
-                      text = "Activar Fondo de Espectro"
-                      setPadding(56, 36, 56, 36)
+                  val container = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      setPadding(48, 64, 48, 64)
+                  }
+
+                  val title = TextView(this).apply {
+                      text = "PowerSpectrum"
+                      textSize = 28f
+                      setTextColor(Color.parseColor("#00F5D4"))
+                      typeface = Typeface.DEFAULT_BOLD
+                  }
+
+                  val subtitle = TextView(this).apply {
+                      text = "Visualizadores estilo Poweramp (Tip: también puedes hacer doble toque en tu fondo de pantalla para cambiar de estilo al instante)."
+                      textSize = 14f
+                      setTextColor(Color.parseColor("#A0AAB8"))
+                      setPadding(0, 12, 0, 40)
+                  }
+
+                  container.addView(title)
+                  container.addView(subtitle)
+
+                  // Sección de estilos de visualizador
+                  container.addView(sectionHeader("1. ELIGE EL ESTILO DE ESPECTRO"))
+
+                  val styles = listOf(
+                      0 to "Barras LED + Picos y Reflejo (Clásico Poweramp)",
+                      1 to "Reactor Radial 360° (Círculo Bass-Pulse)",
+                      2 to "Ondas Líquidas Neón (Estilo Milkdrop)",
+                      3 to "Horizonte Espejo + Partículas de Bajo",
+                      4 to "Ecualizador de Bloques Digitales Hi-Fi"
+                  )
+
+                  val styleButtons = mutableListOf<Button>()
+                  val currentStyle = prefs.getInt("style", 0)
+
+                  styles.forEach { (id, name) ->
+                      val btn = createOptionButton(name, id == currentStyle)
+                      btn.setOnClickListener {
+                          prefs.edit().putInt("style", id).apply()
+                          styleButtons.forEachIndexed { index, b ->
+                              updateButtonStyle(b, index == id)
+                          }
+                          Toast.makeText(this, "Estilo activado: $name", Toast.LENGTH_SHORT).show()
+                      }
+                      styleButtons.add(btn)
+                      container.addView(btn)
+                  }
+
+                  // Sección de paletas de color
+                  container.addView(sectionHeader("2. ELIGE LA PALETA DE COLORES"))
+
+                  val palettes = listOf(
+                      0 to "Cyberpunk Neón (Cian / Morado / Magenta)",
+                      1 to "Fuego Bass (Amarillo / Naranja / Rojo)",
+                      2 to "Matrix Digital (Lima / Esmeralda / Oscuro)",
+                      3 to "Océano Profundo (Celeste / Azul / Índigo)",
+                      4 to "Oro & Platino (Blanco / Dorado / Ámbar)"
+                  )
+
+                  val paletteButtons = mutableListOf<Button>()
+                  val currentPalette = prefs.getInt("palette", 0)
+
+                  palettes.forEach { (id, name) ->
+                      val btn = createOptionButton(name, id == currentPalette)
+                      btn.setOnClickListener {
+                          prefs.edit().putInt("palette", id).apply()
+                          paletteButtons.forEachIndexed { index, b ->
+                              updateButtonStyle(b, index == id)
+                          }
+                          Toast.makeText(this, "Paleta activada: $name", Toast.LENGTH_SHORT).show()
+                      }
+                      paletteButtons.add(btn)
+                      container.addView(btn)
+                  }
+
+                  // Botón principal de aplicar fondo
+                  val applyBtn = Button(this).apply {
+                      text = "APLICAR FONDO DE PANTALLA"
+                      textSize = 16f
+                      typeface = Typeface.DEFAULT_BOLD
+                      setTextColor(Color.parseColor("#08090F"))
+                      background = GradientDrawable().apply {
+                          cornerRadius = 32f
+                          setColor(Color.parseColor("#00F5D4"))
+                      }
+                      val params = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply {
+                          topMargin = 56
+                      }
+                      layoutParams = params
+                      setPadding(32, 36, 32, 36)
                       setOnClickListener { checkPermissionAndLaunch() }
                   }
 
-                  layout.addView(button)
-                  setContentView(layout)
+                  container.addView(applyBtn)
+                  scrollView.addView(container)
+                  setContentView(scrollView)
+              }
+
+              private fun sectionHeader(text: String): TextView {
+                  return TextView(this).apply {
+                      this.text = text
+                      textSize = 15f
+                      typeface = Typeface.DEFAULT_BOLD
+                      setTextColor(Color.WHITE)
+                      setPadding(0, 32, 0, 16)
+                  }
+              }
+
+              private fun createOptionButton(label: String, selected: Boolean): Button {
+                  return Button(this).apply {
+                      text = label
+                      isAllCaps = false
+                      textSize = 14f
+                      gravity = Gravity.START or Gravity.CENTER_VERTICAL
+                      setPadding(40, 28, 40, 28)
+                      val params = LinearLayout.LayoutParams(
+                          LinearLayout.LayoutParams.MATCH_PARENT,
+                          LinearLayout.LayoutParams.WRAP_CONTENT
+                      ).apply {
+                          bottomMargin = 16
+                      }
+                      layoutParams = params
+                      updateButtonStyle(this, selected)
+                  }
+              }
+
+              private fun updateButtonStyle(button: Button, selected: Boolean) {
+                  val drawable = GradientDrawable().apply {
+                      cornerRadius = 24f
+                      if (selected) {
+                          setColor(Color.parseColor("#1E2235"))
+                          setStroke(4, Color.parseColor("#00F5D4"))
+                      } else {
+                          setColor(Color.parseColor("#121420"))
+                          setStroke(2, Color.parseColor("#262B40"))
+                      }
+                  }
+                  button.background = drawable
+                  button.setTextColor(if (selected) Color.parseColor("#00F5D4") else Color.WHITE)
               }
 
               private fun checkPermissionAndLaunch() {
@@ -240,190 +385,100 @@ jobs:
           cat << 'EOF' > app/src/main/java/com/ejemplo/espectrowallpaper/AudioSpectrumWallpaperService.kt
           package com.ejemplo.espectrowallpaper
 
+          import android.content.Context
           import android.graphics.Canvas
           import android.graphics.Color
           import android.graphics.LinearGradient
           import android.graphics.Paint
+          import android.graphics.Path
+          import android.graphics.RadialGradient
           import android.graphics.RectF
           import android.graphics.Shader
           import android.media.audiofx.Visualizer
+          import android.os.Handler
+          import android.os.Looper
+          import android.os.SystemClock
           import android.service.wallpaper.WallpaperService
+          import android.view.MotionEvent
           import android.view.SurfaceHolder
+          import kotlin.math.PI
+          import kotlin.math.cos
           import kotlin.math.hypot
           import kotlin.math.log10
           import kotlin.math.max
+          import kotlin.math.min
+          import kotlin.math.pow
+          import kotlin.math.sin
+          import kotlin.random.Random
 
           class AudioSpectrumWallpaperService : WallpaperService() {
 
               override fun onCreateEngine(): Engine {
-                  return SpectrumEngine()
+                  return PowerSpectrumEngine()
               }
 
-              inner class SpectrumEngine : Engine() {
+              inner class PowerSpectrumEngine : Engine() {
                   private var visualizer: Visualizer? = null
-                  private val barCount = 48
-                  private val smoothedMagnitudes = FloatArray(barCount) { 12f }
-                  private val rect = RectF()
+                  private val handler = Handler(Looper.getMainLooper())
+                  private var isVisible = false
 
-                  private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                  private val numBands = 64
+                  private val targetMagnitudes = FloatArray(numBands)
+                  private val smoothedMagnitudes = FloatArray(numBands) { 8f }
+                  private val peakHeights = FloatArray(numBands) { 10f }
+                  private val peakVelocities = FloatArray(numBands) { 0f }
+
+                  private var bassEnergy = 0f
+                  private var rotationAngle = 0f
+                  private var wavePhase = 0f
+                  private var lastAudioTimestamp = 0L
+
+                  // Detector de doble toque para cambiar de visualizador
+                  private var lastTapTime = 0L
+                  private var lastTapX = 0f
+                  private var lastTapY = 0f
+
+                  // Partículas reactivas
+                  private val numParticles = 35
+                  private val particleX = FloatArray(numParticles) { Random.nextFloat() }
+                  private val particleY = FloatArray(numParticles) { Random.nextFloat() }
+                  private val particleSpeed = FloatArray(numParticles) { Random.nextFloat() * 0.004f + 0.001f }
+                  private val particleRadius = FloatArray(numParticles) { Random.nextFloat() * 5f + 2f }
+
+                  private val rect = RectF()
+                  private val wavePath = Path()
+
+                  private val bgPaint = Paint().apply {
+                      color = Color.parseColor("#07080D")
+                  }
+                  private val mainPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      style = Paint.Style.FILL
+                  }
+                  private val reflectionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      style = Paint.Style.FILL
+                  }
+                  private val peakPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      style = Paint.Style.FILL
+                  }
+                  private val strokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      style = Paint.Style.STROKE
+                      strokeCap = Paint.Cap.ROUND
+                  }
+                  private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                       style = Paint.Style.FILL
                   }
 
-                  private val bgPaint = Paint().apply {
-                      color = Color.parseColor("#0B0C10")
+                  private val renderRunnable = object : Runnable {
+                      override fun run() {
+                          if (isVisible) {
+                              updatePhysics()
+                              drawFrame()
+                              handler.postDelayed(this, 16L) // ~60 FPS constantes
+                          }
+                      }
                   }
 
                   override fun onVisibilityChanged(visible: Boolean) {
                       super.onVisibilityChanged(visible)
-                      if (visible) {
-                          startVisualizer()
-                      } else {
-                          stopVisualizer()
-                      }
-                  }
-
-                  override fun onSurfaceChanged(
-                      holder: SurfaceHolder?,
-                      format: Int,
-                      width: Int,
-                      height: Int
-                  ) {
-                      super.onSurfaceChanged(holder, format, width, height)
-                      barPaint.shader = LinearGradient(
-                          0f, height * 0.3f,
-                          0f, height.toFloat(),
-                          intArrayOf(
-                              Color.parseColor("#00F5D4"),
-                              Color.parseColor("#7B2CBF"),
-                              Color.parseColor("#FF007F")
-                          ),
-                          null,
-                          Shader.TileMode.CLAMP
-                      )
-                      drawFrame()
-                  }
-
-                  private fun startVisualizer() {
-                      if (visualizer != null) return
-                      try {
-                          visualizer = Visualizer(0).apply {
-                              captureSize = Visualizer.getCaptureSizeRange()[1]
-                              setDataCaptureListener(
-                                  object : Visualizer.OnDataCaptureListener {
-                                      override fun onWaveFormDataCapture(
-                                          v: Visualizer?,
-                                          waveform: ByteArray?,
-                                          samplingRate: Int
-                                      ) {}
-
-                                      override fun onFftDataCapture(
-                                          v: Visualizer?,
-                                          fft: ByteArray?,
-                                          samplingRate: Int
-                                      ) {
-                                          fft?.let {
-                                              processFft(it)
-                                              drawFrame()
-                                          }
-                                      }
-                                  },
-                                  Visualizer.getMaxCaptureRate(),
-                                  false,
-                                  true
-                              )
-                              enabled = true
-                          }
-                      } catch (e: Exception) {
-                          e.printStackTrace()
-                          drawFrame()
-                      }
-                  }
-
-                  private fun stopVisualizer() {
-                      visualizer?.apply {
-                          enabled = false
-                          release()
-                      }
-                      visualizer = null
-                  }
-
-                  private fun processFft(fft: ByteArray) {
-                      val maxBins = (fft.size / 2) - 1
-                      for (i in 0 until barCount) {
-                          val binIndex = (i * maxBins / barCount).coerceAtLeast(1)
-                          val rfk = fft[2 * binIndex].toInt()
-                          val ifk = fft[2 * binIndex + 1].toInt()
-
-                          val magnitude = hypot(rfk.toDouble(), ifk.toDouble()).toFloat()
-                          val dbValue = if (magnitude > 0) 20 * log10(magnitude.toDouble()).toFloat() else 0f
-                          val targetHeight = (dbValue * 18f).coerceAtLeast(12f)
-
-                          smoothedMagnitudes[i] = if (targetHeight > smoothedMagnitudes[i]) {
-                              smoothedMagnitudes[i] + (targetHeight - smoothedMagnitudes[i]) * 0.6f
-                          } else {
-                              max(12f, smoothedMagnitudes[i] * 0.88f)
-                          }
-                      }
-                  }
-
-                  private fun drawFrame() {
-                      val holder = surfaceHolder
-                      var canvas: Canvas? = null
-                      try {
-                          canvas = holder.lockCanvas()
-                          if (canvas != null) {
-                              val width = canvas.width.toFloat()
-                              val height = canvas.height.toFloat()
-
-                              canvas.drawRect(0f, 0f, width, height, bgPaint)
-
-                              val totalSlotWidth = width / barCount
-                              val barWidth = totalSlotWidth * 0.65f
-                              val spacing = totalSlotWidth * 0.35f
-                              val baseLine = height * 0.85f
-
-                              for (i in 0 until barCount) {
-                                  val barHeight = smoothedMagnitudes[i].coerceAtMost(height * 0.65f)
-                                  val left = i * totalSlotWidth + (spacing / 2f)
-                                  val top = baseLine - barHeight
-                                  val right = left + barWidth
-
-                                  rect.set(left, top, right, baseLine)
-                                  canvas.drawRoundRect(rect, barWidth / 2f, barWidth / 2f, barPaint)
-                              }
-                          }
-                      } finally {
-                          if (canvas != null) {
-                              holder.unlockCanvasAndPost(canvas)
-                          }
-                      }
-                  }
-
-                  override fun onDestroy() {
-                      super.onDestroy()
-                      stopVisualizer()
-                  }
-              }
-          }
-          EOF
-
-      - name: Configurar JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-
-      - name: Configurar Gradle 8.7
-        uses: gradle/actions/setup-gradle@v3
-        with:
-          gradle-version: '8.7'
-
-      - name: Compilar APK Debug
-        run: gradle assembleDebug
-
-      - name: Subir APK listo para instalar
-        uses: actions/upload-artifact@v4
-        with:
-          name: EspectroWallpaper-APK
-          path: app/build/outputs/apk/debug/app-debug.apk
-          
+                      isVisible = visible
+                      
