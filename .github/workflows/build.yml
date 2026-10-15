@@ -1,0 +1,429 @@
+name: Generar Proyecto y Compilar APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Generar estructura y archivos del proyecto Android
+        run: |
+          mkdir -p app/src/main/java/com/ejemplo/espectrowallpaper
+          mkdir -p app/src/main/res/xml
+          mkdir -p app/src/main/res/values
+          mkdir -p app/src/main/res/drawable
+
+          cat << 'EOF' > gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat << 'EOF' > settings.gradle.kts
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "EspectroWallpaper"
+          include(":app")
+          EOF
+
+          cat << 'EOF' > build.gradle.kts
+          plugins {
+              id("com.android.application") version "8.4.0" apply false
+              id("org.jetbrains.kotlin.android") version "1.9.23" apply false
+          }
+          EOF
+
+          cat << 'EOF' > app/build.gradle.kts
+          plugins {
+              id("com.android.application")
+              id("org.jetbrains.kotlin.android")
+          }
+
+          android {
+              namespace = "com.ejemplo.espectrowallpaper"
+              compileSdk = 34
+
+              defaultConfig {
+                  applicationId = "com.ejemplo.espectrowallpaper"
+                  minSdk = 26
+                  targetSdk = 34
+                  versionCode = 1
+                  versionName = "1.0"
+              }
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = "17"
+              }
+          }
+
+          dependencies {
+              implementation("androidx.core:core-ktx:1.12.0")
+              implementation("androidx.appcompat:appcompat:1.6.1")
+              implementation("androidx.activity:activity-ktx:1.8.2")
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/res/values/strings.xml
+          <resources>
+              <string name="app_name">Espectro de Sonido</string>
+              <string name="wallpaper_desc">Fondo animado con espectro de frecuencias de audio en tiempo real</string>
+          </resources>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/drawable/ic_launcher.xml
+          <vector xmlns:android="http://schemas.android.com/apk/res/android"
+              android:width="108dp"
+              android:height="108dp"
+              android:viewportWidth="108"
+              android:viewportHeight="108">
+              <path
+                  android:fillColor="#0B0C10"
+                  android:pathData="M0,0h108v108h-108z"/>
+              <path
+                  android:fillColor="#00F5D4"
+                  android:pathData="M24,60h8v24h-8zM38,40h8v44h-8zM52,24h8v60h-8zM66,46h8v38h-8zM80,56h8v28h-8z"/>
+          </vector>
+          EOF
+
+          cat << 'EOF' > app/src/main/res/xml/wallpaper.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <wallpaper xmlns:android="http://schemas.android.com/apk/res/android"
+              android:description="@string/wallpaper_desc"
+              android:thumbnail="@drawable/ic_launcher" />
+          EOF
+
+          cat << 'EOF' > app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+              <uses-feature
+                  android:name="android.software.live_wallpaper"
+                  android:required="true" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@drawable/ic_launcher"
+                  android:label="@string/app_name"
+                  android:supportsRtl="true"
+                  android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+
+                  <service
+                      android:name=".AudioSpectrumWallpaperService"
+                      android:enabled="true"
+                      android:exported="true"
+                      android:label="@string/app_name"
+                      android:permission="android.permission.BIND_WALLPAPER">
+                      <intent-filter>
+                          <action android:name="android.service.wallpaper.WallpaperService" />
+                      </intent-filter>
+                      <meta-data
+                          android:name="android.service.wallpaper"
+                          android:resource="@xml/wallpaper" />
+                  </service>
+
+              </application>
+          </manifest>
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ejemplo/espectrowallpaper/MainActivity.kt
+          package com.ejemplo.espectrowallpaper
+
+          import android.Manifest
+          import android.app.WallpaperManager
+          import android.content.ComponentName
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.os.Bundle
+          import android.view.Gravity
+          import android.widget.Button
+          import android.widget.LinearLayout
+          import android.widget.Toast
+          import androidx.activity.result.contract.ActivityResultContracts
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : AppCompatActivity() {
+
+              private val requestPermissionLauncher = registerForActivityResult(
+                  ActivityResultContracts.RequestPermission()
+              ) { isGranted: Boolean ->
+                  if (isGranted) {
+                      openWallpaperPicker()
+                  } else {
+                      Toast.makeText(
+                          this,
+                          "Se necesita el permiso de audio para mostrar el espectro.",
+                          Toast.LENGTH_LONG
+                      ).show()
+                  }
+              }
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  val layout = LinearLayout(this).apply {
+                      orientation = LinearLayout.VERTICAL
+                      gravity = Gravity.CENTER
+                      setBackgroundColor(0xFF0B0C10.toInt())
+                  }
+
+                  val button = Button(this).apply {
+                      text = "Activar Fondo de Espectro"
+                      setPadding(56, 36, 56, 36)
+                      setOnClickListener { checkPermissionAndLaunch() }
+                  }
+
+                  layout.addView(button)
+                  setContentView(layout)
+              }
+
+              private fun checkPermissionAndLaunch() {
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                      == PackageManager.PERMISSION_GRANTED
+                  ) {
+                      openWallpaperPicker()
+                  } else {
+                      requestPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                  }
+              }
+
+              private fun openWallpaperPicker() {
+                  val intent = Intent(WallpaperManager.ACTION_CHANGE_LIVE_WALLPAPER).apply {
+                      putExtra(
+                          WallpaperManager.EXTRA_LIVE_WALLPAPER_COMPONENT,
+                          ComponentName(this@MainActivity, AudioSpectrumWallpaperService::class.java)
+                      )
+                  }
+                  startActivity(intent)
+              }
+          }
+          EOF
+
+          cat << 'EOF' > app/src/main/java/com/ejemplo/espectrowallpaper/AudioSpectrumWallpaperService.kt
+          package com.ejemplo.espectrowallpaper
+
+          import android.graphics.Canvas
+          import android.graphics.Color
+          import android.graphics.LinearGradient
+          import android.graphics.Paint
+          import android.graphics.RectF
+          import android.graphics.Shader
+          import android.media.audiofx.Visualizer
+          import android.service.wallpaper.WallpaperService
+          import android.view.SurfaceHolder
+          import kotlin.math.hypot
+          import kotlin.math.log10
+          import kotlin.math.max
+
+          class AudioSpectrumWallpaperService : WallpaperService() {
+
+              override fun onCreateEngine(): Engine {
+                  return SpectrumEngine()
+              }
+
+              inner class SpectrumEngine : Engine() {
+                  private var visualizer: Visualizer? = null
+                  private val barCount = 48
+                  private val smoothedMagnitudes = FloatArray(barCount) { 12f }
+                  private val rect = RectF()
+
+                  private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                      style = Paint.Style.FILL
+                  }
+
+                  private val bgPaint = Paint().apply {
+                      color = Color.parseColor("#0B0C10")
+                  }
+
+                  override fun onVisibilityChanged(visible: Boolean) {
+                      super.onVisibilityChanged(visible)
+                      if (visible) {
+                          startVisualizer()
+                      } else {
+                          stopVisualizer()
+                      }
+                  }
+
+                  override fun onSurfaceChanged(
+                      holder: SurfaceHolder?,
+                      format: Int,
+                      width: Int,
+                      height: Int
+                  ) {
+                      super.onSurfaceChanged(holder, format, width, height)
+                      barPaint.shader = LinearGradient(
+                          0f, height * 0.3f,
+                          0f, height.toFloat(),
+                          intArrayOf(
+                              Color.parseColor("#00F5D4"),
+                              Color.parseColor("#7B2CBF"),
+                              Color.parseColor("#FF007F")
+                          ),
+                          null,
+                          Shader.TileMode.CLAMP
+                      )
+                      drawFrame()
+                  }
+
+                  private fun startVisualizer() {
+                      if (visualizer != null) return
+                      try {
+                          visualizer = Visualizer(0).apply {
+                              captureSize = Visualizer.getCaptureSizeRange()[1]
+                              setDataCaptureListener(
+                                  object : Visualizer.OnDataCaptureListener {
+                                      override fun onWaveFormDataCapture(
+                                          v: Visualizer?,
+                                          waveform: ByteArray?,
+                                          samplingRate: Int
+                                      ) {}
+
+                                      override fun onFftDataCapture(
+                                          v: Visualizer?,
+                                          fft: ByteArray?,
+                                          samplingRate: Int
+                                      ) {
+                                          fft?.let {
+                                              processFft(it)
+                                              drawFrame()
+                                          }
+                                      }
+                                  },
+                                  Visualizer.getMaxCaptureRate(),
+                                  false,
+                                  true
+                              )
+                              enabled = true
+                          }
+                      } catch (e: Exception) {
+                          e.printStackTrace()
+                          drawFrame()
+                      }
+                  }
+
+                  private fun stopVisualizer() {
+                      visualizer?.apply {
+                          enabled = false
+                          release()
+                      }
+                      visualizer = null
+                  }
+
+                  private fun processFft(fft: ByteArray) {
+                      val maxBins = (fft.size / 2) - 1
+                      for (i in 0 until barCount) {
+                          val binIndex = (i * maxBins / barCount).coerceAtLeast(1)
+                          val rfk = fft[2 * binIndex].toInt()
+                          val ifk = fft[2 * binIndex + 1].toInt()
+
+                          val magnitude = hypot(rfk.toDouble(), ifk.toDouble()).toFloat()
+                          val dbValue = if (magnitude > 0) 20 * log10(magnitude.toDouble()).toFloat() else 0f
+                          val targetHeight = (dbValue * 18f).coerceAtLeast(12f)
+
+                          smoothedMagnitudes[i] = if (targetHeight > smoothedMagnitudes[i]) {
+                              smoothedMagnitudes[i] + (targetHeight - smoothedMagnitudes[i]) * 0.6f
+                          } else {
+                              max(12f, smoothedMagnitudes[i] * 0.88f)
+                          }
+                      }
+                  }
+
+                  private fun drawFrame() {
+                      val holder = surfaceHolder
+                      var canvas: Canvas? = null
+                      try {
+                          canvas = holder.lockCanvas()
+                          if (canvas != null) {
+                              val width = canvas.width.toFloat()
+                              val height = canvas.height.toFloat()
+
+                              canvas.drawRect(0f, 0f, width, height, bgPaint)
+
+                              val totalSlotWidth = width / barCount
+                              val barWidth = totalSlotWidth * 0.65f
+                              val spacing = totalSlotWidth * 0.35f
+                              val baseLine = height * 0.85f
+
+                              for (i in 0 until barCount) {
+                                  val barHeight = smoothedMagnitudes[i].coerceAtMost(height * 0.65f)
+                                  val left = i * totalSlotWidth + (spacing / 2f)
+                                  val top = baseLine - barHeight
+                                  val right = left + barWidth
+
+                                  rect.set(left, top, right, baseLine)
+                                  canvas.drawRoundRect(rect, barWidth / 2f, barWidth / 2f, barPaint)
+                              }
+                          }
+                      } finally {
+                          if (canvas != null) {
+                              holder.unlockCanvasAndPost(canvas)
+                          }
+                      }
+                  }
+
+                  override fun onDestroy() {
+                      super.onDestroy()
+                      stopVisualizer()
+                  }
+              }
+          }
+          EOF
+
+      - name: Configurar JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Configurar Gradle 8.7
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.7'
+
+      - name: Compilar APK Debug
+        run: gradle assembleDebug
+
+      - name: Subir APK listo para instalar
+        uses: actions/upload-artifact@v4
+        with:
+          name: EspectroWallpaper-APK
+          path: app/build/outputs/apk/debug/app-debug.apk
+          
